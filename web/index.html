@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Incident Analysis Suite</title>
+<style>
+/* ── Design tokens ─────────────────────────────────────────────── */
+:root {
+  --bg:        #080c12;
+  --surface:   #0e1420;
+  --surface2:  #141d2e;
+  --surface3:  #1b2640;
+  --border:    rgba(255,255,255,.07);
+  --border2:   rgba(255,255,255,.13);
+  --text:      #e2e8f4;
+  --muted:     #6b7a99;
+  --muted2:    #8a97b5;
+  --accent:    #4f8ef7;
+  --accent2:   #7eb3ff;
+  --crit:      #ff4757;
+  --high:      #ff8c42;
+  --med:       #ffd060;
+  --low:       #3ecf8e;
+  --done:      #3ecf8e;
+  --fail:      #ff4757;
+  --warn:      #ff8c42;
+  --font:      'Inter', system-ui, sans-serif;
+  --mono:      'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  --sidebar-w: 240px;
+  --radius:    10px;
+  --radius-lg: 16px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); }
+
+/* ── Layout ────────────────────────────────────────────────────── */
+.app   { display: flex; height: 100vh; overflow: hidden; }
+.sidebar { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+.main  { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.topbar { height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 12px; flex-shrink: 0; }
+.content { flex: 1; overflow-y: auto; padding: 28px; }
+
+/* ── Sidebar ───────────────────────────────────────────────────── */
+.logo { padding: 18px 18px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+.logo-icon { width: 30px; height: 30px; background: linear-gradient(135deg,#4f8ef7,#a78bfa); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink:0; }
+.logo-text { font-size: 13px; font-weight: 600; letter-spacing: .2px; line-height: 1.3; }
+.logo-sub  { font-size: 11px; color: var(--muted); }
+.nav { padding: 12px 10px; flex: 1; }
+.nav-label { font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); padding: 4px 8px 8px; }
+.nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--muted2); font-size: 13px; transition: .15s; margin-bottom: 2px; }
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: rgba(79,142,247,.15); color: var(--accent2); }
+.nav-icon { font-size: 16px; width: 18px; text-align: center; flex-shrink: 0; }
+.nav-badge { margin-left: auto; background: var(--crit); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 20px; }
+
+/* Run history in sidebar */
+.run-list { padding: 0 10px 12px; }
+.run-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 3px; transition: .15s; border: 1px solid transparent; }
+.run-item:hover { background: var(--surface2); }
+.run-item.active { background: var(--surface3); border-color: var(--border2); }
+.run-item-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-item-meta { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot.complete { background: var(--done); }
+.dot.running  { background: var(--accent); animation: blink 1s infinite; }
+.dot.failed   { background: var(--fail); }
+.dot.partial  { background: var(--warn); }
+.dot.queued   { background: var(--muted); }
+@keyframes blink { 50% { opacity: .3; } }
+
+/* ── Topbar ────────────────────────────────────────────────────── */
+.topbar-title { font-size: 15px; font-weight: 600; flex: 1; }
+.topbar-status { display: flex; align-items: center; gap: 8px; }
+.chip { background: var(--surface2); border: 1px solid var(--border2); border-radius: 20px; padding: 3px 11px; font-size: 12px; color: var(--muted2); display: flex; align-items: center; gap: 5px; }
+.chip.live { border-color: rgba(79,142,247,.4); color: var(--accent2); }
+.chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ── Upload zone ───────────────────────────────────────────────── */
+.upload-zone { border: 2px dashed var(--border2); border-radius: var(--radius-lg); padding: 40px; text-align: center; cursor: pointer; transition: .2s; position: relative; background: var(--surface); }
+.upload-zone:hover, .upload-zone.over { border-color: var(--accent); background: rgba(79,142,247,.05); }
+.upload-icon { font-size: 36px; margin-bottom: 12px; }
+.upload-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.upload-sub { font-size: 13px; color: var(--muted); }
+.upload-btn { display: inline-block; margin-top: 16px; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px 22px; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s; }
+.upload-btn:hover { background: var(--accent2); }
+.upload-progress { margin-top: 16px; }
+.prog-bar { height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+.prog-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 2px; transition: width .3s; width: 0%; }
+
+/* ── Pipeline ──────────────────────────────────────────────────── */
+.pipeline-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px; }
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.card-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card-meta { display: flex; gap: 8px; }
+.pipeline-track { display: flex; align-items: center; gap: 0; overflow-x: auto; padding-bottom: 4px; }
+.pipe-node { display: flex; flex-direction: column; align-items: center; min-width: 90px; }
+.pipe-icon { width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--border2); background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 22px; transition: .3s; position: relative; }
+.pipe-node.done .pipe-icon  { border-color: var(--done); background: rgba(62,207,142,.1); box-shadow: 0 0 0 4px rgba(62,207,142,.1); }
+.pipe-node.running .pipe-icon { border-color: var(--accent); background: rgba(79,142,247,.1); animation: ring 1.2s ease infinite; }
+.pipe-node.failed .pipe-icon  { border-color: var(--fail); background: rgba(255,71,87,.1); }
+.pipe-node.skipped .pipe-icon { opacity: .35; }
+.pipe-node.waiting_approval .pipe-icon { border-color: var(--high); background: rgba(255,140,66,.1); animation: ring2 1.2s ease infinite; }
+@keyframes ring  { 0%,100%{box-shadow:0 0 0 0 rgba(79,142,247,.5)}  50%{box-shadow:0 0 0 8px rgba(79,142,247,0)} }
+@keyframes ring2 { 0%,100%{box-shadow:0 0 0 0 rgba(255,140,66,.5)} 50%{box-shadow:0 0 0 8px rgba(255,140,66,0)} }
+.pipe-check { position: absolute; bottom: -2px; right: -2px; width: 18px; height: 18px; border-radius: 50%; background: var(--done); color: #fff; font-size: 10px; display: none; align-items: center; justify-content: center; border: 2px solid var(--surface); }
+.pipe-node.done .pipe-check { display: flex; }
+.pipe-label { font-size: 11px; color: var(--muted); margin-top: 8px; text-align: center; }
+.pipe-node.done .pipe-label { color: var(--muted2); }
+.pipe-node.running .pipe-label { color: var(--accent2); }
+.pipe-edge { flex: 1; height: 2px; background: var(--border); min-width: 20px; position: relative; top: -12px; }
+.pipe-edge.done { background: linear-gradient(90deg, var(--done), var(--done)); }
+
+/* ── Stats row ─────────────────────────────────────────────────── */
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+.stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+.stat-value { font-size: 26px; font-weight: 700; letter-spacing: -.5px; line-height: 1; }
+.stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.stat-card.crit .stat-value { color: var(--crit); }
+.stat-card.high .stat-value { color: var(--high); }
+.stat-card.med  .stat-value { color: var(--med); }
+.stat-card.ok   .stat-value { color: var(--done); }
+
+/* ── Issues table ──────────────────────────────────────────────── */
+.section-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 20px; overflow: hidden; }
+.section-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.section-title { font-size: 14px; font-weight: 600; }
+.filter-row { display: flex; gap: 8px; }
+.filter-btn { background: var(--surface2); border: 1px solid var(--border2); border-radius: 6px; padding: 4px 12px; font-size: 12px; color: var(--muted2); cursor: pointer; transition: .15s; }
+.filter-btn:hover, .filter-btn.active { background: rgba(79,142,247,.15); border-color: var(--accent); color: var(--accent2); }
+.issue-table { width: 100%; border-collapse: collapse; }
+.issue-table th { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+.issue-table td { padding: 13px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.issue-table tr:last-child td { border-bottom: none; }
+.issue-row { cursor: pointer; transition: .15s; }
+.issue-row:hover { background: var(--surface2); }
+.issue-row.open { background: rgba(79,142,247,.04); }
+.sev-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .3px; }
+.sev-badge.Critical { background: rgba(255,71,87,.15);  color: var(--crit); }
+.sev-badge.High     { background: rgba(255,140,66,.15); color: var(--high); }
+.sev-badge.Medium   { background: rgba(255,208,96,.12); color: var(--med); }
+.sev-badge.Low      { background: rgba(62,207,142,.12); color: var(--low); }
+.sev-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.issue-summary { font-size: 13px; font-weight: 500; }
+.issue-cat { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.count-pill { background: var(--surface3); border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 600; font-family: var(--mono); }
+.conf-bar { width: 60px; height: 5px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+.conf-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+
+/* ── Remediation drawer ────────────────────────────────────────── */
+.rem-drawer { background: var(--surface2); border-top: 1px solid var(--border); padding: 0; max-height: 0; overflow: hidden; transition: max-height .35s ease, padding .35s ease; }
+.rem-drawer.open { max-height: 600px; padding: 20px; }
+.rem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.rem-block { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.rem-block.full { grid-column: 1 / -1; }
+.rem-block-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.rem-block-label .risk { padding: 1px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+.risk.low    { background: rgba(62,207,142,.15); color: var(--low); }
+.risk.medium { background: rgba(255,208,96,.15); color: var(--med); }
+.risk.high   { background: rgba(255,71,87,.15);  color: var(--crit); }
+.destr-warn  { background: rgba(255,71,87,.1); border: 1px solid rgba(255,71,87,.3); border-radius: 6px; padding: 8px 12px; font-size: 12px; color: var(--crit); margin-bottom: 10px; }
+pre.code-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font: 12px/1.7 var(--mono); white-space: pre-wrap; word-break: break-all; color: #a8c7fa; overflow: auto; max-height: 220px; }
+.ev-btn { background: transparent; border: 1px solid var(--border2); border-radius: 6px; padding: 4px 12px; font-size: 12px; color: var(--muted2); cursor: pointer; transition: .15s; display: inline-flex; align-items: center; gap: 5px; }
+.ev-btn:hover { border-color: var(--accent); color: var(--accent2); }
+.evidence-viewer { margin-top: 10px; display: none; }
+.evidence-viewer.show { display: block; }
+pre.ev-code { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font: 12px/1.8 var(--mono); white-space: pre; overflow: auto; max-height: 200px; }
+.ev-hl { background: rgba(255,71,87,.18); display: block; border-left: 3px solid var(--crit); padding-left: 6px; margin-left: -6px; }
+.citations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cite { background: rgba(79,142,247,.1); border: 1px solid rgba(79,142,247,.25); border-radius: 6px; padding: 2px 10px; font-size: 11px; color: var(--accent2); }
+
+/* ── Approval banner ───────────────────────────────────────────── */
+.approval-banner { background: rgba(255,140,66,.06); border: 1px solid rgba(255,140,66,.3); border-radius: var(--radius); padding: 16px 20px; display: none; margin-bottom: 20px; }
+.approval-banner.show { display: flex; align-items: center; gap: 16px; }
+.approval-icon { font-size: 24px; flex-shrink: 0; }
+.approval-text { flex: 1; }
+.approval-title { font-size: 14px; font-weight: 600; color: var(--high); }
+.approval-sub { font-size: 13px; color: var(--muted2); margin-top: 2px; }
+.btn-approve { background: var(--high); color: #fff; border: 0; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s; }
+.btn-approve:hover { filter: brightness(1.1); }
+.btn-skip { background: transparent; border: 1px solid var(--border2); border-radius: 8px; padding: 9px 20px; font-size: 13px; color: var(--muted2); cursor: pointer; transition: .15s; }
+.btn-skip:hover { border-color: var(--border2); color: var(--text); }
+
+/* ── Actions panel ─────────────────────────────────────────────── */
+.actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 16px 20px; }
+.action-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px; }
+.action-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
+.action-info { flex: 1; min-width: 0; }
+.action-title { font-size: 13px; font-weight: 600; }
+.action-detail { font-size: 12px; color: var(--muted); margin-top: 3px; word-break: break-all; }
+.action-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 20px; margin-top: 6px; display: inline-block; }
+.action-badge.ok      { background: rgba(62,207,142,.15); color: var(--done); }
+.action-badge.dry-run { background: rgba(255,208,96,.12); color: var(--med); }
+.action-badge.fail    { background: rgba(255,71,87,.15);  color: var(--crit); }
+.jira-list { padding: 0 20px 16px; display: flex; flex-direction: column; gap: 8px; }
+.jira-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+.jira-key { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--accent2); white-space: nowrap; }
+.jira-sum { font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jira-dry { font-size: 11px; font-weight: 700; color: var(--med); background: rgba(255,208,96,.1); padding: 2px 8px; border-radius: 20px; }
+
+/* ── Cookbook ──────────────────────────────────────────────────── */
+.cookbook-body { padding: 20px; }
+.cookbook-md { font-size: 13px; line-height: 1.8; color: var(--text); }
+.cookbook-md h1,.cookbook-md h2 { font-size: 14px; font-weight: 700; margin: 16px 0 8px; color: var(--accent2); }
+.cookbook-md h3 { font-size: 13px; font-weight: 600; margin: 12px 0 6px; color: var(--muted2); }
+.cookbook-md ul,.cookbook-md ol { padding-left: 20px; }
+.cookbook-md li { margin: 4px 0; }
+.cookbook-md li input[type=checkbox] { margin-right: 8px; accent-color: var(--accent); }
+.cookbook-md code { font-family: var(--mono); font-size: 11px; background: var(--surface3); padding: 1px 5px; border-radius: 4px; }
+.copy-btn { background: var(--surface2); border: 1px solid var(--border2); border-radius: 6px; padding: 5px 14px; font-size: 12px; color: var(--muted2); cursor: pointer; transition: .15s; }
+.copy-btn:hover { color: var(--text); border-color: var(--border2); }
+
+/* ── Empty/loading states ──────────────────────────────────────── */
+.empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty-icon { font-size: 40px; margin-bottom: 12px; }
+.empty-title { font-size: 16px; font-weight: 600; color: var(--muted2); margin-bottom: 6px; }
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.skeleton { background: linear-gradient(90deg, var(--surface2) 25%, var(--surface3) 50%, var(--surface2) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; height: 14px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* ── Error log ─────────────────────────────────────────────────── */
+.err-list { padding: 12px 20px 16px; }
+.err-item { background: rgba(255,71,87,.05); border: 1px solid rgba(255,71,87,.2); border-radius: 8px; padding: 10px 14px; font: 12px/1.5 var(--mono); color: var(--muted2); margin-bottom: 8px; }
+
+/* ── Scrollbars ────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 3px; }
+
+/* ── Utilities ─────────────────────────────────────────────────── */
+.row { display: flex; align-items: center; gap: 8px; }
+.flex1 { flex: 1; }
+.hidden { display: none !important; }
+.tag { background: var(--surface3); border-radius: 5px; padding: 1px 8px; font-size: 11px; color: var(--muted2); }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── Sidebar ──────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <div>
+      <div class="logo-text">Incident Suite</div>
+      <div class="logo-sub">Multi-Agent Analysis</div>
+    </div>
+  </div>
+  <nav class="nav">
+    <div class="nav-label">Workspace</div>
+    <div class="nav-item active" onclick="showView('analyze')">
+      <span class="nav-icon">🔍</span> Analyze Logs
+    </div>
+    <div class="nav-item" onclick="showView('history')">
+      <span class="nav-icon">📋</span> Run History
+    </div>
+    <div class="nav-label" style="margin-top:12px">Recent Runs</div>
+  </nav>
+  <div class="run-list" id="runList"></div>
+</aside>
+
+<!-- ── Main ─────────────────────────────────────────────────────── -->
+<div class="main">
+  <div class="topbar">
+    <span class="topbar-title" id="topbarTitle">Analyze Logs</span>
+    <div class="topbar-status">
+      <div class="chip" id="chipRun" style="display:none">
+        <span class="spinner" style="width:10px;height:10px;border-width:1.5px"></span>
+        <span id="chipRunLabel">Running…</span>
+      </div>
+      <div class="chip" id="chipCost">$0.0000 · 0 tok</div>
+    </div>
+  </div>
+
+  <div class="content" id="mainContent">
+
+    <!-- Upload section -->
+    <div id="viewAnalyze">
+      <div class="upload-zone" id="drop" onclick="document.getElementById('fileInput').click()">
+        <div class="upload-icon">📂</div>
+        <div class="upload-title">Drop your ops log file here</div>
+        <div class="upload-sub">.log .txt .json .gz — up to 100 MB</div>
+        <button class="upload-btn" onclick="event.stopPropagation();document.getElementById('fileInput').click()">Choose file</button>
+        <input type="file" id="fileInput" hidden accept=".log,.txt,.json,.gz" onchange="onFilePick(this.files[0])"/>
+        <div class="upload-progress hidden" id="uploadProg">
+          <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px" id="progLabel">Uploading…</div>
+        </div>
+      </div>
+
+      <!-- Approval banner -->
+      <div class="approval-banner" id="approvalBanner">
+        <div class="approval-icon">🛡️</div>
+        <div class="approval-text">
+          <div class="approval-title">Human-in-the-loop: approve external actions</div>
+          <div class="approval-sub">Send the Slack summary and create JIRA tickets for Critical/High issues?</div>
+        </div>
+        <button class="btn-approve" onclick="decide(true)">Approve & Send</button>
+        <button class="btn-skip" onclick="decide(false)">Skip</button>
+      </div>
+
+      <!-- Pipeline -->
+      <div class="pipeline-card hidden" id="pipelineCard">
+        <div class="card-header">
+          <div class="card-title">🤖 Agent Pipeline</div>
+          <div class="card-meta">
+            <div class="chip" id="pipeStatus">—</div>
+          </div>
+        </div>
+        <div class="pipeline-track" id="pipelineTrack"></div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row hidden" id="statsRow">
+        <div class="stat-card crit"><div class="stat-label">Critical</div><div class="stat-value" id="sCrit">0</div><div class="stat-sub">issues</div></div>
+        <div class="stat-card high"><div class="stat-label">High</div><div class="stat-value" id="sHigh">0</div><div class="stat-sub">issues</div></div>
+        <div class="stat-card med"><div class="stat-label">Medium</div><div class="stat-value" id="sMed">0</div><div class="stat-sub">issues</div></div>
+        <div class="stat-card ok"><div class="stat-label">Remediations</div><div class="stat-value" id="sRem">0</div><div class="stat-sub">mapped</div></div>
+      </div>
+
+      <!-- Issues -->
+      <div class="section-card hidden" id="issuesCard">
+        <div class="section-head">
+          <div class="section-title">🔎 Detected Issues</div>
+          <div class="filter-row">
+            <button class="filter-btn active" onclick="filterIssues('all',this)">All</button>
+            <button class="filter-btn" onclick="filterIssues('Critical',this)">Critical</button>
+            <button class="filter-btn" onclick="filterIssues('High',this)">High</button>
+            <button class="filter-btn" onclick="filterIssues('Medium',this)">Medium</button>
+            <button class="filter-btn" onclick="filterIssues('Low',this)">Low</button>
+          </div>
+        </div>
+        <table class="issue-table" id="issueTable">
+          <thead>
+            <tr>
+              <th>Severity</th><th>Summary</th><th>Category</th>
+              <th>Occurrences</th><th>Confidence</th><th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody id="issueBody"></tbody>
+        </table>
+      </div>
+
+      <!-- External Actions -->
+      <div class="section-card hidden" id="actionsCard">
+        <div class="section-head">
+          <div class="section-title">📡 External Actions</div>
+        </div>
+        <div class="actions-grid" id="actionsGrid"></div>
+        <div class="jira-list hidden" id="jiraList"></div>
+      </div>
+
+      <!-- Cookbook -->
+      <div class="section-card hidden" id="cookCard">
+        <div class="section-head">
+          <div class="section-title">📘 Incident Cookbook</div>
+          <button class="copy-btn" onclick="copyCookbook()">Copy Markdown</button>
+        </div>
+        <div class="cookbook-body">
+          <div class="cookbook-md" id="cookbookMd"></div>
+        </div>
+      </div>
+
+      <!-- Errors -->
+      <div class="section-card hidden" id="errCard">
+        <div class="section-head"><div class="section-title" style="color:var(--crit)">⚠️ Pipeline Errors</div></div>
+        <div class="err-list" id="errList"></div>
+      </div>
+
+      <!-- Empty state -->
+      <div class="empty" id="emptyState">
+        <div class="empty-icon">🗂️</div>
+        <div class="empty-title">No run yet</div>
+        <div>Upload a log file above to start the analysis pipeline.</div>
+      </div>
+    </div>
+
+    <!-- History view -->
+    <div id="viewHistory" class="hidden">
+      <div class="section-card">
+        <div class="section-head"><div class="section-title">📋 All Runs</div></div>
+        <table class="issue-table" id="historyTable">
+          <thead><tr><th>File</th><th>Status</th><th>Issues</th><th>Cost</th><th>Started</th><th></th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script>
+// Auth is a signed, HttpOnly session cookie set by GET "/" — the browser sends it
+// automatically on same-origin requests, so the API key itself never reaches JS.
+const NODES = [
+  ['ingest','📥','Ingest'],['classify','🔎','Classifier'],
+  ['remediate','🛠️','Remediation'],['cookbook','📘','Cookbook'],
+  ['gate','🛡️','Approval'],['slack','💬','Slack'],
+  ['jira','🎫','JIRA'],['finalize','✅','Done']
+];
+let RUN = null, poller = null, rawMd = '';
+
+/* ── Build pipeline track ──── */
+const track = document.getElementById('pipelineTrack');
+NODES.forEach(([id, ic, label], i) => {
+  const n = document.createElement('div');
+  n.className = 'pipe-node';
+  n.id = 'pn-' + id;
+  n.innerHTML = `<div class="pipe-icon">${ic}<div class="pipe-check">✓</div></div><div class="pipe-label">${label}</div>`;
+  track.appendChild(n);
+  if (i < NODES.length - 1) {
+    const e = document.createElement('div');
+    e.className = 'pipe-edge';
+    e.id = 'pe-' + id;
+    track.appendChild(e);
+  }
+});
+
+function setNode(id, status) {
+  const n = document.getElementById('pn-' + id);
+  if (n) { n.className = 'pipe-node ' + (status || ''); }
+  const e = document.getElementById('pe-' + id);
+  if (e && status === 'done') e.classList.add('done');
+}
+
+/* ── Upload ──────────────────── */
+const drop = document.getElementById('drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); onFilePick(e.dataTransfer.files[0]); };
+
+async function onFilePick(file) {
+  if (!file) return;
+  document.getElementById('uploadProg').classList.remove('hidden');
+  document.getElementById('progFill').style.width = '30%';
+  document.getElementById('progLabel').textContent = 'Uploading ' + file.name + '…';
+  const fd = new FormData(); fd.append('file', file);
+  try {
+    const r = await fetch('/v1/analyses', { method: 'POST', body: fd });
+    if (!r.ok) { alert('Upload failed: ' + await r.text()); return; }
+    const { id } = await r.json();
+    document.getElementById('progFill').style.width = '100%';
+    document.getElementById('progLabel').textContent = 'Run ' + id;
+    startRun(id);
+  } catch(e) { alert('Error: ' + e); }
+}
+
+function startRun(id) {
+  RUN = id;
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('pipelineCard').classList.remove('hidden');
+  document.getElementById('issuesCard').classList.add('hidden');
+  document.getElementById('statsRow').classList.add('hidden');
+  document.getElementById('actionsCard').classList.add('hidden');
+  document.getElementById('cookCard').classList.add('hidden');
+  document.getElementById('errCard').classList.add('hidden');
+  document.getElementById('approvalBanner').classList.remove('show');
+  document.getElementById('chipRun').style.display = 'flex';
+  document.getElementById('chipRunLabel').textContent = 'Running…';
+  NODES.forEach(([id]) => setNode(id, ''));
+  listen(id);
+  poller && clearInterval(poller);
+  poller = setInterval(() => pollRun(id), 1200);
+  addToRunList(id, 'running', '…');
+}
+
+/* ── SSE ─────────────────────── */
+function listen(id) {
+  const es = new EventSource('/v1/analyses/' + id + '/events');
+  es.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    if (ev.node === 'snapshot') {
+      try { const ns = JSON.parse(ev.detail); for (const [n,s] of Object.entries(ns)) setNode(n,s); } catch{}
+      return;
+    }
+    if (ev.node === 'pipeline') {
+      document.getElementById('pipeStatus').textContent = ev.status;
+      document.getElementById('chipRun').style.display = 'none';
+      if (['complete','partial','failed','budget_exceeded'].includes(ev.status)) { es.close(); clearInterval(poller); pollRun(id); }
+      return;
+    }
+    if (ev.node === 'gate' && ev.status === 'waiting_approval') {
+      document.getElementById('approvalBanner').classList.add('show');
+    } else if (ev.node === 'gate' && ev.status === 'done') {
+      document.getElementById('approvalBanner').classList.remove('show');
+    }
+    setNode(ev.node, ev.status);
+  };
+  es.onerror = () => es.close();
+}
+
+/* ── Approval ────────────────── */
+async function decide(ok) {
+  document.getElementById('approvalBanner').classList.remove('show');
+  await fetch('/v1/analyses/' + RUN + '/actions/approve',
+    { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({approve:ok}) });
+}
+
+/* ── Poll & render ───────────── */
+async function pollRun(id) {
+  const r = await fetch('/v1/analyses/' + id);
+  if (!r.ok) return;
+  const d = await r.json();
+  render(d);
+}
+
+const SEV_ORDER = ['Critical','High','Medium','Low'];
+let allIssues = [], remMap = {};
+
+function render(d) {
+  document.getElementById('chipCost').textContent = '$' + d.cost_usd.toFixed(4) + ' · ' + (d.tokens_in + d.tokens_out) + ' tok';
+  document.getElementById('pipeStatus').textContent = d.status;
+
+  // node states
+  for (const [n, s] of Object.entries(d.nodes || {})) setNode(n, s);
+
+  allIssues = d.issues || [];
+  remMap = {};
+  for (const r of (d.remediations || [])) remMap[r.fingerprint] = r;
+
+  if (allIssues.length) {
+    document.getElementById('statsRow').classList.remove('hidden');
+    document.getElementById('issuesCard').classList.remove('hidden');
+    document.getElementById('sCrit').textContent = allIssues.filter(i=>i.severity==='Critical').length;
+    document.getElementById('sHigh').textContent = allIssues.filter(i=>i.severity==='High').length;
+    document.getElementById('sMed').textContent  = allIssues.filter(i=>i.severity==='Medium').length;
+    document.getElementById('sRem').textContent  = (d.remediations||[]).length;
+    renderIssues(allIssues);
+  }
+
+  // Actions
+  const acts = [];
+  if (d.slack) acts.push({ type:'slack', data: d.slack });
+  if ((d.jira||[]).length) acts.push({ type:'jira', data: d.jira });
+  if (acts.length) {
+    document.getElementById('actionsCard').classList.remove('hidden');
+    renderActions(d.slack, d.jira || []);
+  }
+
+  if (d.cookbook_md) {
+    rawMd = d.cookbook_md;
+    document.getElementById('cookCard').classList.remove('hidden');
+    document.getElementById('cookbookMd').innerHTML = mdToHtml(d.cookbook_md);
+  }
+
+  if ((d.errors||[]).length) {
+    document.getElementById('errCard').classList.remove('hidden');
+    document.getElementById('errList').innerHTML = d.errors.map(e => `<div class="err-item">${esc(e)}</div>`).join('');
+  }
+
+  updateRunList(d.id, d.status, allIssues.length);
+}
+
+function renderIssues(issues) {
+  const body = document.getElementById('issueBody');
+  body.innerHTML = issues.map(i => {
+    const rm = remMap[i.fingerprint];
+    const ev = (i.evidence||[])[0] || {};
+    return `
+    <tr class="issue-row" id="ir-${i.fingerprint}" onclick="toggleDrawer('${i.fingerprint}')">
+      <td><span class="sev-badge ${i.severity}"><span class="sev-dot"></span>${i.severity}</span></td>
+      <td><div class="issue-summary">${esc(i.summary)}</div></td>
+      <td><span class="tag">${esc(i.category)}</span></td>
+      <td><span class="count-pill">×${i.count}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="conf-bar"><div class="conf-fill" style="width:${Math.round(i.confidence*100)}%"></div></div>
+          <span style="font-size:11px;color:var(--muted)">${Math.round(i.confidence*100)}%</span>
+        </div>
+      </td>
+      <td>
+        ${ev.start_line ? `<button class="ev-btn" onclick="event.stopPropagation();showEvidence('${i.fingerprint}',${ev.start_line},${ev.end_line})">📄 L${ev.start_line}–${ev.end_line}</button>` : '<span style="color:var(--muted);font-size:12px">—</span>'}
+      </td>
+    </tr>
+    <tr><td colspan="6" style="padding:0;border:0">
+      <div class="rem-drawer" id="rd-${i.fingerprint}">
+        <div class="rem-grid">
+          ${rm ? `
+          <div class="rem-block">
+            <div class="rem-block-label">🔍 Root cause</div>
+            <div style="font-size:13px">${esc(rm.root_cause)}</div>
+          </div>
+          <div class="rem-block">
+            <div class="rem-block-label">📊 Risk <span class="risk ${rm.risk}">${rm.risk}</span></div>
+            <div style="font-size:13px">${esc(rm.rationale)}</div>
+            ${rm.citations&&rm.citations.length?`<div class="citations">${rm.citations.map(c=>`<span class="cite">📎 ${esc(c)}</span>`).join('')}</div>`:''}
+          </div>
+          <div class="rem-block full">
+            <div class="rem-block-label">🛠️ Fix steps ${rm.destructive?'<span class="risk high">⚠ DESTRUCTIVE</span>':''}</div>
+            ${rm.destructive?'<div class="destr-warn">⚠️ Review carefully before running — this action may be irreversible.</div>':''}
+            <pre class="code-block">${esc(rm.fix_steps_md)}</pre>
+          </div>
+          ` : '<div class="rem-block full" style="color:var(--muted)">No remediation generated for this issue.</div>'}
+          <div class="rem-block full">
+            <div class="rem-block-label">📄 Evidence
+              <button class="ev-btn" onclick="showEvidence('${i.fingerprint}',${ev.start_line||1},${ev.end_line||1})">View log lines</button>
+            </div>
+            <div class="evidence-viewer" id="ev-${i.fingerprint}"></div>
+          </div>
+        </div>
+      </div>
+    </td></tr>`;
+  }).join('');
+}
+
+function filterIssues(sev, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const filtered = sev === 'all' ? allIssues : allIssues.filter(i=>i.severity===sev);
+  renderIssues(filtered);
+}
+
+function toggleDrawer(fp) {
+  const d = document.getElementById('rd-' + fp);
+  const r = document.getElementById('ir-' + fp);
+  if (!d) return;
+  const isOpen = d.classList.contains('open');
+  document.querySelectorAll('.rem-drawer.open').forEach(el=>{ el.classList.remove('open'); });
+  document.querySelectorAll('.issue-row.open').forEach(el=>{ el.classList.remove('open'); });
+  if (!isOpen) { d.classList.add('open'); r.classList.add('open'); }
+}
+
+async function showEvidence(fp, s, en) {
+  const el = document.getElementById('ev-' + fp);
+  if (!el) return;
+  const vis = el.classList.contains('show');
+  el.classList.toggle('show', !vis);
+  if (vis || el.innerHTML) return;
+  el.innerHTML = '<div style="color:var(--muted);font-size:12px">Loading…</div>';
+  const r = await fetch(`/v1/analyses/${RUN}/evidence?start=${s}&end=${en}`);
+  const d = await r.json();
+  el.innerHTML = '<pre class="ev-code">' +
+    d.lines.map((ln, i) => {
+      const n = d.start + i;
+      const hl = n >= d.highlight[0] && n <= d.highlight[1];
+      return `<span class="${hl?'ev-hl':''}">${String(n).padStart(5)} │ ${esc(ln)}</span>`;
+    }).join('\n') + '</pre>';
+}
+
+function renderActions(slack, jira) {
+  const grid = document.getElementById('actionsGrid');
+  const parts = [];
+  if (slack) {
+    const ok = slack.ok;
+    const dry = slack.dry_run;
+    parts.push(`
+    <div class="action-card">
+      <div class="action-icon">💬</div>
+      <div class="action-info">
+        <div class="action-title">Slack Notification</div>
+        <div class="action-detail">${esc(slack.channel || 'channel not set')} — ${esc(slack.detail||'')}</div>
+        <span class="action-badge ${dry?'dry-run':ok?'ok':'fail'}">${dry?'Dry-run':ok?'Sent':'Failed'}</span>
+      </div>
+    </div>`);
+  }
+  if (jira.length) {
+    parts.push(`
+    <div class="action-card">
+      <div class="action-icon">🎫</div>
+      <div class="action-info">
+        <div class="action-title">JIRA Tickets</div>
+        <div class="action-detail">${jira.length} ticket(s) for Critical/High issues</div>
+        <span class="action-badge ${jira[0].dry_run?'dry-run':'ok'}">${jira[0].dry_run?'Dry-run':'Created'}</span>
+      </div>
+    </div>`);
+  }
+  grid.innerHTML = parts.join('');
+  if (jira.length) {
+    const jl = document.getElementById('jiraList');
+    jl.classList.remove('hidden');
+    jl.innerHTML = jira.map(j=>`
+      <div class="jira-item">
+        <span class="jira-key">${esc(j.key||'—')}</span>
+        <span class="jira-sum">${esc(j.summary||j.detail||'')}</span>
+        ${j.dry_run?'<span class="jira-dry">Dry-run</span>':''}
+        ${j.duplicate?'<span class="jira-dry" style="color:var(--muted)">Duplicate</span>':''}
+      </div>`).join('');
+  }
+}
+
+/* ── Markdown ────────────────── */
+function mdToHtml(md) {
+  return md
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^- \[ \] (.+)$/gm, '<li><input type="checkbox"/> $1</li>')
+    .replace(/^- \[x\] (.+)$/gm, '<li><input type="checkbox" checked/> $1</li>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n\n/g, '<br/><br/>');
+}
+
+function copyCookbook() {
+  navigator.clipboard.writeText(rawMd).then(()=>{ const b=event.target; b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Markdown',1500); });
+}
+
+/* ── Run history sidebar ─────── */
+const runCache = {};
+function addToRunList(id, status, filename) {
+  runCache[id] = { id, status, filename: filename || '…' };
+  refreshRunList();
+}
+function updateRunList(id, status, issueCount) {
+  if (runCache[id]) { runCache[id].status = status; runCache[id].issueCount = issueCount; }
+  refreshRunList();
+}
+function refreshRunList() {
+  const el = document.getElementById('runList');
+  const items = Object.values(runCache).reverse();
+  el.innerHTML = items.slice(0,8).map(r=>`
+    <div class="run-item ${r.id===RUN?'active':''}" style="position:relative" onclick="loadRun('${r.id}')">
+      <div class="run-item-name" style="padding-right:16px">${esc(r.filename||r.id.slice(0,8))}</div>
+      <div class="run-item-meta">
+        <div class="dot ${r.status}"></div>
+        <span>${r.status}</span>
+        ${r.issueCount?`<span>· ${r.issueCount} issues</span>`:''}
+      </div>
+      <span onclick="event.stopPropagation();deleteRun('${r.id}')" title="Delete run"
+            style="position:absolute;top:8px;right:8px;color:var(--muted);cursor:pointer;font-size:13px;line-height:1">✕</span>
+    </div>`).join('');
+}
+
+async function deleteRun(id) {
+  if (!confirm('Delete this run? This cannot be undone.')) return;
+  const r = await fetch('/v1/analyses/' + id, { method: 'DELETE' });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    alert(d.detail || 'Could not delete run.');
+    return;
+  }
+  delete runCache[id];
+  if (RUN === id) {
+    RUN = null;
+    document.getElementById('pipelineCard').classList.add('hidden');
+    document.getElementById('emptyState').classList.remove('hidden');
+  }
+  refreshRunList();
+  if (!document.getElementById('viewHistory').classList.contains('hidden')) loadHistory();
+}
+async function loadRun(id) {
+  RUN = id;
+  showView('analyze');
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('pipelineCard').classList.remove('hidden');
+  for (const [nid] of NODES) setNode(nid,'');
+  await pollRun(id);
+  refreshRunList();
+}
+
+/* ── History view ────────────── */
+async function loadHistory() {
+  const r = await fetch('/v1/analyses');
+  if (!r.ok) return;
+  const runs = await r.json();
+  runs.forEach(r => { runCache[r.id] = { id:r.id, status:r.status, filename:r.filename }; });
+  document.getElementById('historyBody').innerHTML = runs.map(r=>`
+    <tr class="issue-row" onclick="loadRun('${r.id}');showView('analyze')">
+      <td>${esc(r.filename||r.id.slice(0,8))}</td>
+      <td><span class="sev-badge ${statusColor(r.status)}">${r.status}</span></td>
+      <td>—</td>
+      <td style="font-family:var(--mono);font-size:12px">$${(r.cost_usd||0).toFixed(4)}</td>
+      <td style="font-size:12px;color:var(--muted)">${new Date(r.created_at).toLocaleString()}</td>
+      <td><span onclick="event.stopPropagation();deleteRun('${r.id}')" title="Delete run"
+                style="color:var(--muted);cursor:pointer">✕</span></td>
+    </tr>`).join('');
+  refreshRunList();
+}
+function statusColor(s) { return {complete:'Low',partial:'Medium',failed:'Critical',running:''}[s]||''; }
+
+/* ── Views ───────────────────── */
+function showView(v) {
+  document.getElementById('viewAnalyze').classList.toggle('hidden', v!=='analyze');
+  document.getElementById('viewHistory').classList.toggle('hidden', v!=='history');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>{ if(n.textContent.toLowerCase().includes(v==='analyze'?'analyze':'history')) n.classList.add('active'); });
+  document.getElementById('topbarTitle').textContent = v==='analyze'?'Analyze Logs':'Run History';
+  if (v==='history') loadHistory();
+}
+
+/* ── Utilities ───────────────── */
+function esc(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ── Init: load existing runs ── */
+(async () => {
+  const r = await fetch('/v1/analyses');
+  if (!r.ok) return;
+  const runs = await r.json();
+  runs.slice(0,8).forEach(r => { runCache[r.id] = { id:r.id, status:r.status, filename:r.filename }; });
+  refreshRunList();
+  // Deep link from Slack/JIRA notifications: /?run=<id>
+  const linkedRun = new URLSearchParams(location.search).get('run');
+  if (linkedRun) {
+    loadRun(linkedRun);
+  } else if (runs[0] && ['complete','partial'].includes(runs[0].status)) {
+    loadRun(runs[0].id);
+  }
+})();
+</script>
+</body>
+</html>
